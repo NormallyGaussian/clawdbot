@@ -85,13 +85,17 @@ async function promptSearchProviderOnboarding(
     }
   }
 
-  // Ensure web_search and web_fetch are in tools.alsoAllow so the agent can
-  // actually use them (profiles like "messaging" don't include web tools).
-  const existing = config.tools?.alsoAllow ?? [];
-  const alsoAllow = [...existing];
+  // Ensure web_search and web_fetch are allowed. If the user already has
+  // tools.allow, merge into that list (the schema rejects allow + alsoAllow
+  // together). Otherwise append to tools.alsoAllow.
+  const toolsAllow = config.tools?.allow;
+  const hasExplicitAllow = Array.isArray(toolsAllow) && toolsAllow.length > 0;
+  const baseList: string[] = hasExplicitAllow
+    ? [...toolsAllow]
+    : [...(config.tools?.alsoAllow ?? [])];
   for (const tool of ["web_search", "web_fetch"]) {
-    if (!alsoAllow.includes(tool)) {
-      alsoAllow.push(tool);
+    if (!baseList.includes(tool)) {
+      baseList.push(tool);
     }
   }
 
@@ -115,7 +119,7 @@ async function promptSearchProviderOnboarding(
     ...config,
     tools: {
       ...config.tools,
-      alsoAllow,
+      ...(hasExplicitAllow ? { allow: baseList } : { alsoAllow: baseList }),
       web: {
         ...config.tools?.web,
         search,
