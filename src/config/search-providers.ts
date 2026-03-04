@@ -30,3 +30,40 @@ export const PROVIDER_PLACEHOLDERS: Record<SearchProviderValue, string> = {
   gemini: "AIza...",
   kimi: "sk-...",
 };
+
+/**
+ * Build the `tools.web.fetch` object with Parallel extract toggled based on
+ * the selected search provider.  When the provider is `"parallel"`, Parallel
+ * extract is enabled and the API key is copied; otherwise an existing Parallel
+ * extract config is explicitly disabled so it doesn't linger after a provider
+ * switch.
+ */
+export function applyParallelExtractToggle(
+  existingFetch: Record<string, unknown> | undefined,
+  provider: SearchProviderValue | undefined,
+  apiKey: string | undefined,
+): Record<string, unknown> | undefined {
+  if (provider === "parallel") {
+    return {
+      ...existingFetch,
+      parallel: {
+        ...(existingFetch?.parallel as Record<string, unknown> | undefined),
+        enabled: true,
+        ...(apiKey ? { apiKey } : {}),
+      },
+    };
+  }
+
+  // Disable Parallel extract when switching away from Parallel.
+  if (existingFetch?.parallel) {
+    return {
+      ...existingFetch,
+      parallel: {
+        ...(existingFetch.parallel as Record<string, unknown>),
+        enabled: false,
+      },
+    };
+  }
+
+  return existingFetch;
+}
