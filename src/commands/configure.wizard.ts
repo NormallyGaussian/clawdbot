@@ -5,6 +5,7 @@ import type { OpenClawConfig } from "../config/config.js";
 import { readConfigFileSnapshot, resolveGatewayPort, writeConfigFile } from "../config/config.js";
 import { logConfigUpdated } from "../config/logging.js";
 import {
+  applyParallelExtractToggle,
   PROVIDER_ENV_VARS,
   PROVIDER_PLACEHOLDERS,
   SEARCH_PROVIDER_OPTIONS,
@@ -262,7 +263,7 @@ async function promptWebToolsConfig(
           },
         };
       }
-    } else {
+    } else if (!process.env[PROVIDER_ENV_VARS[providerChoice]]) {
       note(
         [
           `No key stored yet, so web_search (${providerChoice}) will stay unavailable.`,
@@ -283,32 +284,15 @@ async function promptWebToolsConfig(
   );
 
   // When the user picks Parallel, also enable Parallel extract (same API key).
-  const nextFetch =
-    selectedProvider === "parallel"
-      ? {
-          ...existingFetch,
-          enabled: enableFetch,
-          parallel: {
-            ...((existingFetch as Record<string, unknown> | undefined)?.parallel as
-              | Record<string, unknown>
-              | undefined),
-            enabled: true,
-            ...(selectedKey ? { apiKey: selectedKey } : {}),
-          },
-        }
-      : {
-          ...existingFetch,
-          enabled: enableFetch,
-          // Disable Parallel extract when switching away from Parallel.
-          ...((existingFetch as Record<string, unknown> | undefined)?.parallel
-            ? {
-                parallel: {
-                  ...(existingFetch as Record<string, Record<string, unknown>>).parallel,
-                  enabled: false,
-                },
-              }
-            : {}),
-        };
+  // When switching away, disable it so it doesn't linger.
+  const nextFetch = {
+    ...applyParallelExtractToggle(
+      existingFetch as Record<string, unknown> | undefined,
+      selectedProvider,
+      selectedKey || undefined,
+    ),
+    enabled: enableFetch,
+  };
 
   return {
     ...nextConfig,

@@ -13,6 +13,7 @@ import {
   writeConfigFile,
 } from "../config/config.js";
 import {
+  applyParallelExtractToggle,
   PROVIDER_ENV_VARS,
   PROVIDER_PLACEHOLDERS,
   SEARCH_PROVIDER_OPTIONS,
@@ -101,32 +102,12 @@ async function promptSearchProviderOnboarding(
 
   // When the user picks Parallel as the search provider, also enable Parallel
   // extract as the default web_fetch extractor (same API key, better extraction).
-  const fetch =
-    provider === "parallel"
-      ? {
-          ...config.tools?.web?.fetch,
-          parallel: {
-            ...((config.tools?.web?.fetch as Record<string, unknown> | undefined)?.parallel as
-              | Record<string, unknown>
-              | undefined),
-            enabled: true,
-            ...(key ? { apiKey: key } : {}),
-          },
-        }
-      : (() => {
-          const existing = config.tools?.web?.fetch;
-          // Disable Parallel extract when switching away from Parallel.
-          if ((existing as Record<string, unknown> | undefined)?.parallel) {
-            return {
-              ...existing,
-              parallel: {
-                ...(existing as Record<string, Record<string, unknown>>).parallel,
-                enabled: false,
-              },
-            };
-          }
-          return existing;
-        })();
+  // When switching away, disable it so it doesn't linger.
+  const fetch = applyParallelExtractToggle(
+    config.tools?.web?.fetch as Record<string, unknown> | undefined,
+    provider,
+    key || undefined,
+  );
 
   return {
     ...config,
