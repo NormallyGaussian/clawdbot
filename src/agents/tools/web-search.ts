@@ -1550,18 +1550,19 @@ export function createWebSearchTool(options?: {
   const kimiConfig = resolveKimiConfig(search);
   const parallelConfig = resolveParallelConfig(search);
 
-  const description =
-    provider === "perplexity"
-      ? "Search the web using the Perplexity Search API. Returns structured results (title, URL, snippet) for fast research. Supports domain, region, language, and freshness filtering."
-      : provider === "grok"
-        ? "Search the web using xAI Grok. Returns AI-synthesized answers with citations from real-time web search."
-        : provider === "kimi"
-          ? "Search the web using Kimi by Moonshot. Returns AI-synthesized answers with citations from native $web_search."
-          : provider === "gemini"
-            ? "Search the web using Gemini with Google Search grounding. Returns AI-synthesized answers with citations from Google Search."
-            : provider === "parallel"
-              ? "Search the web using Parallel. Returns relevant excerpts from real-time web search optimized for LLMs."
-              : "Search the web using Brave Search API. Supports region-specific and localized search via country and language parameters. Returns titles, URLs, and snippets for fast research.";
+  const PROVIDER_DESCRIPTIONS: Record<(typeof SEARCH_PROVIDERS)[number], string> = {
+    brave:
+      "Search the web using Brave Search API. Supports region-specific and localized search via country and language parameters. Returns titles, URLs, and snippets for fast research.",
+    perplexity:
+      "Search the web using the Perplexity Search API. Returns structured results (title, URL, snippet) for fast research. Supports domain, region, language, and freshness filtering.",
+    grok: "Search the web using xAI Grok. Returns AI-synthesized answers with citations from real-time web search.",
+    gemini:
+      "Search the web using Gemini with Google Search grounding. Returns AI-synthesized answers with citations from Google Search.",
+    kimi: "Search the web using Kimi by Moonshot. Returns AI-synthesized answers with citations from native $web_search.",
+    parallel:
+      "Search the web using Parallel. Returns relevant excerpts from real-time web search optimized for LLMs.",
+  };
+  const description = PROVIDER_DESCRIPTIONS[provider];
 
   return {
     label: "Web Search",
@@ -1571,18 +1572,16 @@ export function createWebSearchTool(options?: {
     execute: async (_toolCallId, args) => {
       const perplexityAuth =
         provider === "perplexity" ? resolvePerplexityApiKey(perplexityConfig) : undefined;
-      const apiKey =
-        provider === "perplexity"
-          ? perplexityAuth?.apiKey
-          : provider === "grok"
-            ? resolveGrokApiKey(grokConfig)
-            : provider === "kimi"
-              ? resolveKimiApiKey(kimiConfig)
-              : provider === "gemini"
-                ? resolveGeminiApiKey(geminiConfig)
-                : provider === "parallel"
-                  ? resolveParallelApiKey(parallelConfig)
-                  : resolveSearchApiKey(search);
+      const apiKeyByProvider: Record<(typeof SEARCH_PROVIDERS)[number], () => string | undefined> =
+        {
+          brave: () => resolveSearchApiKey(search),
+          perplexity: () => perplexityAuth?.apiKey,
+          grok: () => resolveGrokApiKey(grokConfig),
+          gemini: () => resolveGeminiApiKey(geminiConfig),
+          kimi: () => resolveKimiApiKey(kimiConfig),
+          parallel: () => resolveParallelApiKey(parallelConfig),
+        };
+      const apiKey = apiKeyByProvider[provider]();
 
       if (!apiKey) {
         return jsonResult(missingSearchKeyPayload(provider));
