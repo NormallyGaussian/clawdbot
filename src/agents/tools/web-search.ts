@@ -1238,6 +1238,7 @@ async function runParallelSearch(params: {
           "parallel-beta": PARALLEL_BETA_HEADER,
         },
         body: JSON.stringify({
+          mode: "agentic",
           objective: params.query,
           search_queries: [params.query],
           max_results: params.count,
