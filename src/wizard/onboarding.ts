@@ -89,7 +89,7 @@ async function promptSearchProviderOnboarding(
   // tools.allow, merge into that list (the schema rejects allow + alsoAllow
   // together). Otherwise append to tools.alsoAllow.
   const toolsAllow = config.tools?.allow;
-  const hasExplicitAllow = Array.isArray(toolsAllow) && toolsAllow.length > 0;
+  const hasExplicitAllow = Array.isArray(toolsAllow);
   const baseList: string[] = hasExplicitAllow
     ? [...toolsAllow]
     : [...(config.tools?.alsoAllow ?? [])];
