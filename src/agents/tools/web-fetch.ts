@@ -884,9 +884,23 @@ async function runWebFetch(params: WebFetchRuntimeParams): Promise<Record<string
           }
         }
       } else {
-        throw new Error(
-          "Web fetch extraction failed: Readability disabled and Firecrawl unavailable.",
-        );
+        // Readability disabled — try Firecrawl as last resort.
+        const firecrawl = await tryFirecrawlFallback({ ...params, url: finalUrl });
+        if (firecrawl) {
+          text = firecrawl.text;
+          title = firecrawl.title;
+          extractor = "firecrawl";
+        } else {
+          const tried = [
+            params.parallelExtractEnabled && "Parallel",
+            params.firecrawlEnabled && "Firecrawl",
+          ]
+            .filter(Boolean)
+            .join(", ");
+          throw new Error(
+            `Web fetch extraction failed: Readability disabled${tried ? `, ${tried} returned no content` : ""}.`,
+          );
+        }
       }
     } else if (contentType.includes("application/json")) {
       try {
