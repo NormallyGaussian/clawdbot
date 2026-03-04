@@ -6,10 +6,11 @@ import { readConfigFileSnapshot, resolveGatewayPort, writeConfigFile } from "../
 import { logConfigUpdated } from "../config/logging.js";
 import {
   applyParallelExtractToggle,
-  PROVIDER_ENV_VARS,
   PROVIDER_PLACEHOLDERS,
   SEARCH_PROVIDER_OPTIONS,
   type SearchProviderValue,
+  hasProviderEnvKey,
+  providerEnvHint,
 } from "../config/search-providers.js";
 import { normalizeSecretInputString } from "../config/types.secrets.js";
 import { ensureControlUiAssetsBuilt } from "../infra/control-ui-assets.js";
@@ -192,7 +193,7 @@ async function promptWebToolsConfig(
       }
     }
     nextSearch = { ...nextSearch, provider: providerChoice };
-    const envVarHint = PROVIDER_ENV_VARS[providerChoice];
+    const envVarHint = providerEnvHint(providerChoice);
     const placeholder = PROVIDER_PLACEHOLDERS[providerChoice];
 
     // Resolve existing key for the selected provider
@@ -233,7 +234,7 @@ async function promptWebToolsConfig(
           },
         };
       }
-    } else if (!process.env[PROVIDER_ENV_VARS[providerChoice]]) {
+    } else if (!hasProviderEnvKey(providerChoice)) {
       note(
         [
           `No key stored yet, so web_search (${providerChoice}) will stay unavailable.`,
@@ -259,7 +260,13 @@ async function promptWebToolsConfig(
     ...applyParallelExtractToggle(
       existingFetch as Record<string, unknown> | undefined,
       selectedProvider,
-      selectedKey || undefined,
+      selectedKey ||
+        (selectedProvider && selectedProvider !== "brave"
+          ? ((nextSearch[selectedProvider] as Record<string, unknown> | undefined)?.apiKey as
+              | string
+              | undefined)
+          : undefined) ||
+        undefined,
     ),
     enabled: enableFetch,
   };
