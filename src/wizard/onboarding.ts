@@ -14,10 +14,10 @@ import {
 } from "../config/config.js";
 import {
   applyParallelExtractToggle,
-  PROVIDER_ENV_VARS,
   PROVIDER_PLACEHOLDERS,
   SEARCH_PROVIDER_OPTIONS,
   type SearchProviderValue,
+  providerEnvHint,
 } from "../config/search-providers.js";
 import { normalizeSecretInputString } from "../config/types.secrets.js";
 import type { RuntimeEnv } from "../runtime.js";
@@ -58,7 +58,7 @@ async function promptSearchProviderOnboarding(
     return config;
   }
 
-  const envHint = PROVIDER_ENV_VARS[provider];
+  const envHint = providerEnvHint(provider);
   const placeholder = PROVIDER_PLACEHOLDERS[provider];
 
   const keyInput = await prompter.text({
@@ -116,10 +116,18 @@ async function promptSearchProviderOnboarding(
   // When the user picks Parallel as the search provider, also enable Parallel
   // extract as the default web_fetch extractor (same API key, better extraction).
   // When switching away, disable it so it doesn't linger.
+  // Fall back to the existing search config key so Parallel extract inherits
+  // the search API key even when the user leaves the prompt blank.
+  const existingSearchKey =
+    provider === "brave"
+      ? undefined
+      : ((config.tools?.web?.search as Record<string, Record<string, unknown>> | undefined)?.[
+          provider
+        ]?.apiKey as string | undefined);
   const fetch = applyParallelExtractToggle(
     config.tools?.web?.fetch as Record<string, unknown> | undefined,
     provider,
-    key || undefined,
+    key || existingSearchKey || undefined,
   );
 
   return {

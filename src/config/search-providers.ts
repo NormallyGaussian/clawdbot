@@ -13,14 +13,27 @@ export const SEARCH_PROVIDER_OPTIONS = [
 
 export type SearchProviderValue = (typeof SEARCH_PROVIDER_OPTIONS)[number]["value"];
 
-export const PROVIDER_ENV_VARS: Record<SearchProviderValue, string> = {
+export const PROVIDER_ENV_VARS: Record<SearchProviderValue, string | readonly string[]> = {
   brave: "BRAVE_API_KEY",
   parallel: "PARALLEL_API_KEY",
   perplexity: "PERPLEXITY_API_KEY",
   grok: "XAI_API_KEY",
   gemini: "GEMINI_API_KEY",
-  kimi: "KIMI_API_KEY",
+  kimi: ["KIMI_API_KEY", "MOONSHOT_API_KEY"],
 };
+
+/** Check whether the env has a key set for the given provider. */
+export function hasProviderEnvKey(provider: SearchProviderValue): boolean {
+  const vars = PROVIDER_ENV_VARS[provider];
+  const keys = typeof vars === "string" ? [vars] : vars;
+  return keys.some((k) => (process.env[k] ?? "").trim() !== "");
+}
+
+/** Return the primary env-var name(s) as a display hint. */
+export function providerEnvHint(provider: SearchProviderValue): string {
+  const vars = PROVIDER_ENV_VARS[provider];
+  return typeof vars === "string" ? vars : vars.join(" / ");
+}
 
 export const PROVIDER_PLACEHOLDERS: Record<SearchProviderValue, string> = {
   brave: "BSA...",

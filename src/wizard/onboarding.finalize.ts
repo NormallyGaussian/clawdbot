@@ -23,7 +23,7 @@ import {
 } from "../commands/onboard-helpers.js";
 import type { OnboardOptions } from "../commands/onboard-types.js";
 import type { OpenClawConfig } from "../config/config.js";
-import { PROVIDER_ENV_VARS } from "../config/search-providers.js";
+import { hasProviderEnvKey } from "../config/search-providers.js";
 import { resolveGatewayService } from "../daemon/service.js";
 import { isSystemdUserServiceAvailable } from "../daemon/systemd.js";
 import { ensureControlUiAssetsBuilt } from "../infra/control-ui-assets.js";
@@ -482,8 +482,7 @@ export async function finalizeOnboardingWizard(
       : (search as Record<string, Record<string, unknown>> | undefined)?.[configuredProvider]
           ?.apiKey,
   );
-  const providerEnvVar = PROVIDER_ENV_VARS[configuredProvider];
-  const webSearchEnv = Boolean(providerEnvVar && (process.env[providerEnvVar] ?? "").trim());
+  const webSearchEnv = hasProviderEnvKey(configuredProvider);
   const hasWebSearchKey = Boolean(webSearchKey || webSearchProviderKey || webSearchEnv);
   await prompter.note(
     hasWebSearchKey
