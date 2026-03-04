@@ -7,10 +7,7 @@ import { normalizeSecretInput } from "../../utils/normalize-secret-input.js";
 import { stringEnum } from "../schema/typebox.js";
 import type { AnyAgentTool } from "./common.js";
 import { jsonResult, readNumberParam, readStringParam } from "./common.js";
-import {
-  DEFAULT_PARALLEL_BASE_URL as DEFAULT_PARALLEL_EXTRACT_BASE_URL,
-  PARALLEL_BETA_HEADER,
-} from "./parallel-shared.js";
+import { DEFAULT_PARALLEL_BASE_URL, PARALLEL_BETA_HEADER } from "./parallel-shared.js";
 import {
   extractReadableContent,
   htmlToMarkdown,
@@ -238,7 +235,7 @@ function resolveParallelExtractBaseUrl(parallel?: ParallelExtractConfig): string
     parallel && "baseUrl" in parallel && typeof parallel.baseUrl === "string"
       ? parallel.baseUrl.trim()
       : "";
-  return raw || DEFAULT_PARALLEL_EXTRACT_BASE_URL;
+  return raw || DEFAULT_PARALLEL_BASE_URL;
 }
 
 async function fetchParallelContent(params: {
@@ -870,9 +867,14 @@ async function runWebFetch(params: WebFetchRuntimeParams): Promise<Record<string
             title = firecrawl.title;
             extractor = "firecrawl";
           } else {
-            throw new Error(
-              "Web fetch extraction failed: Parallel, Readability, and Firecrawl returned no content.",
-            );
+            const tried = [
+              params.parallelExtractEnabled && "Parallel",
+              "Readability",
+              params.firecrawlEnabled && "Firecrawl",
+            ]
+              .filter(Boolean)
+              .join(", ");
+            throw new Error(`Web fetch extraction failed: ${tried} returned no content.`);
           }
         }
       } else {
