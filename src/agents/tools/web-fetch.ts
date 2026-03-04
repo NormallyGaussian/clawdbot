@@ -792,10 +792,11 @@ async function runWebFetch(params: WebFetchRuntimeParams): Promise<Record<string
 
   try {
     if (!res.ok) {
-      // Try Parallel extract first, then Firecrawl
+      // Try Parallel extract first, then Firecrawl (use finalUrl so
+      // redirect-resolved targets are sent to the fallback provider).
       const parallelPayload = await maybeFetchParallelWebFetchPayload({
         ...params,
-        urlToFetch: params.url,
+        urlToFetch: finalUrl,
         finalUrlFallback: finalUrl,
         statusFallback: res.status,
         cacheKey,
@@ -806,7 +807,7 @@ async function runWebFetch(params: WebFetchRuntimeParams): Promise<Record<string
       }
       const payload = await maybeFetchFirecrawlWebFetchPayload({
         ...params,
-        urlToFetch: params.url,
+        urlToFetch: finalUrl,
         finalUrlFallback: finalUrl,
         statusFallback: res.status,
         cacheKey,
