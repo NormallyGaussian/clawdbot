@@ -986,6 +986,7 @@ function resolveParallelBaseUrl(parallel?: ParallelConfig): string {
 
 async function runParallelSearch(params: {
   query: string;
+  count?: number;
   apiKey: string;
   baseUrl: string;
   timeoutSeconds: number;
@@ -1008,6 +1009,7 @@ async function runParallelSearch(params: {
         body: JSON.stringify({
           objective: params.query,
           mode: "fast",
+          ...(params.count ? { max_results: params.count } : {}),
         }),
       },
     },
@@ -1868,15 +1870,17 @@ async function runWebSearch(params: {
   if (params.provider === "parallel") {
     const results = await runParallelSearch({
       query: params.query,
+      count: params.count,
       apiKey: params.apiKey,
       baseUrl: params.parallelBaseUrl ?? DEFAULT_PARALLEL_BASE_URL,
       timeoutSeconds: params.timeoutSeconds,
     });
+    const sliced = params.count ? results.slice(0, params.count) : results;
 
     const payload = {
       query: params.query,
       provider: params.provider,
-      count: results.length,
+      count: sliced.length,
       tookMs: Date.now() - start,
       externalContent: {
         untrusted: true,
@@ -1884,7 +1888,7 @@ async function runWebSearch(params: {
         provider: params.provider,
         wrapped: true,
       },
-      results,
+      results: sliced,
     };
     writeCache(SEARCH_CACHE, cacheKey, payload, params.cacheTtlMs);
     return payload;
