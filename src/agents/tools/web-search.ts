@@ -2060,23 +2060,22 @@ export function createWebSearchTool(options?: {
   const braveConfig = resolveBraveConfig(search);
   const braveMode = resolveBraveMode(braveConfig);
 
-  const PROVIDER_DESCRIPTIONS: Record<(typeof SEARCH_PROVIDERS)[number], string> = {
-    brave:
-      braveMode === "llm-context"
-        ? "Search the web using Brave Search LLM Context API. Returns pre-extracted page content (text chunks, tables, code blocks) optimized for LLM grounding."
-        : "Search the web using Brave Search API. Supports region-specific and localized search via country and language parameters. Returns titles, URLs, and snippets for fast research.",
-    perplexity:
-      perplexitySchemaTransportHint === "chat_completions"
+  const description =
+    provider === "perplexity"
+      ? perplexitySchemaTransportHint === "chat_completions"
         ? "Search the web using Perplexity Sonar via Perplexity/OpenRouter chat completions. Returns AI-synthesized answers with citations from web-grounded search."
-        : "Search the web using Perplexity. Runtime routing decides between native Search API and Sonar chat-completions compatibility. Structured filters are available on the native Search API path.",
-    grok: "Search the web using xAI Grok. Returns AI-synthesized answers with citations from real-time web search.",
-    gemini:
-      "Search the web using Gemini with Google Search grounding. Returns AI-synthesized answers with citations from Google Search.",
-    kimi: "Search the web using Kimi by Moonshot. Returns AI-synthesized answers with citations from native $web_search.",
-    parallel:
-      "Search the web using Parallel. Returns relevant excerpts from real-time web search optimized for LLMs.",
-  };
-  const description = PROVIDER_DESCRIPTIONS[provider];
+        : "Search the web using Perplexity. Runtime routing decides between native Search API and Sonar chat-completions compatibility. Structured filters are available on the native Search API path."
+      : provider === "grok"
+        ? "Search the web using xAI Grok. Returns AI-synthesized answers with citations from real-time web search."
+        : provider === "kimi"
+          ? "Search the web using Kimi by Moonshot. Returns AI-synthesized answers with citations from native $web_search."
+          : provider === "gemini"
+            ? "Search the web using Gemini with Google Search grounding. Returns AI-synthesized answers with citations from Google Search."
+            : provider === "parallel"
+              ? "Search the web using Parallel. Returns relevant excerpts from real-time web search optimized for LLMs."
+              : braveMode === "llm-context"
+                ? "Search the web using Brave Search LLM Context API. Returns pre-extracted page content (text chunks, tables, code blocks) optimized for LLM grounding."
+                : "Search the web using Brave Search API. Supports region-specific and localized search via country and language parameters. Returns titles, URLs, and snippets for fast research.";
 
   return {
     label: "Web Search",
@@ -2091,16 +2090,18 @@ export function createWebSearchTool(options?: {
       // do not touch Perplexity-only credential surfaces during tool construction.
       const perplexityRuntime =
         provider === "perplexity" ? resolvePerplexityTransport(perplexityConfig) : undefined;
-      const apiKeyByProvider: Record<(typeof SEARCH_PROVIDERS)[number], () => string | undefined> =
-        {
-          brave: () => resolveSearchApiKey(search),
-          perplexity: () => perplexityRuntime?.apiKey,
-          grok: () => resolveGrokApiKey(grokConfig),
-          gemini: () => resolveGeminiApiKey(geminiConfig),
-          kimi: () => resolveKimiApiKey(kimiConfig),
-          parallel: () => resolveParallelApiKey(parallelConfig),
-        };
-      const apiKey = apiKeyByProvider[provider]();
+      const apiKey =
+        provider === "perplexity"
+          ? perplexityRuntime?.apiKey
+          : provider === "grok"
+            ? resolveGrokApiKey(grokConfig)
+            : provider === "kimi"
+              ? resolveKimiApiKey(kimiConfig)
+              : provider === "gemini"
+                ? resolveGeminiApiKey(geminiConfig)
+                : provider === "parallel"
+                  ? resolveParallelApiKey(parallelConfig)
+                  : resolveSearchApiKey(search);
 
       if (!apiKey) {
         return jsonResult(missingSearchKeyPayload(provider));
