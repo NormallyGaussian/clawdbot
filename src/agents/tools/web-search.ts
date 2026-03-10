@@ -8,6 +8,7 @@ import { wrapWebContent } from "../../security/external-content.js";
 import { normalizeSecretInput } from "../../utils/normalize-secret-input.js";
 import type { AnyAgentTool } from "./common.js";
 import { jsonResult, readNumberParam, readStringArrayParam, readStringParam } from "./common.js";
+import { DEFAULT_PARALLEL_BASE_URL } from "./parallel-shared.js";
 import { withTrustedWebToolsEndpoint } from "./web-guarded-fetch.js";
 import { resolveCitationRedirectUrl } from "./web-search-citation-redirect.js";
 import {
@@ -22,7 +23,7 @@ import {
   writeCache,
 } from "./web-shared.js";
 
-const SEARCH_PROVIDERS = ["brave", "gemini", "grok", "kimi", "perplexity"] as const;
+const SEARCH_PROVIDERS = ["brave", "gemini", "grok", "kimi", "parallel", "perplexity"] as const;
 const DEFAULT_SEARCH_COUNT = 5;
 const MAX_SEARCH_COUNT = 10;
 
@@ -43,6 +44,21 @@ const KIMI_WEB_SEARCH_TOOL = {
   type: "builtin_function",
   function: { name: "$web_search" },
 } as const;
+
+type ParallelConfig = {
+  apiKey?: string;
+  baseUrl?: string;
+};
+
+type ParallelSearchResponse = {
+  search_id?: string;
+  results?: Array<{
+    url?: string;
+    title?: string;
+    excerpts?: string[];
+    publish_date?: string;
+  }>;
+};
 
 const SEARCH_CACHE = new Map<string, CacheEntry<Record<string, unknown>>>();
 const BRAVE_FRESHNESS_SHORTCUTS = new Set(["pd", "pw", "pm", "py"]);
@@ -593,6 +609,14 @@ function missingSearchKeyPayload(provider: (typeof SEARCH_PROVIDERS)[number]) {
       docs: "https://docs.openclaw.ai/tools/web",
     };
   }
+  if (provider === "parallel") {
+    return {
+      error: "missing_parallel_api_key",
+      message:
+        "web_search (parallel) needs a Parallel API key. Set PARALLEL_API_KEY in the Gateway environment, or configure tools.web.search.parallel.apiKey.",
+      docs: "https://docs.openclaw.ai/tools/web",
+    };
+  }
   return {
     error: "missing_perplexity_api_key",
     message:
@@ -617,6 +641,9 @@ function resolveSearchProvider(search?: WebSearchConfig): (typeof SEARCH_PROVIDE
   }
   if (raw === "kimi") {
     return "kimi";
+  }
+  if (raw === "parallel") {
+    return "parallel";
   }
   if (raw === "perplexity") {
     return "perplexity";
@@ -654,6 +681,14 @@ function resolveSearchProvider(search?: WebSearchConfig): (typeof SEARCH_PROVIDE
         'web_search: no provider configured, auto-detected "kimi" from available API keys',
       );
       return "kimi";
+    }
+    // Parallel
+    const parallelConfig = resolveParallelConfig(search);
+    if (resolveParallelApiKey(parallelConfig)) {
+      logVerbose(
+        'web_search: no provider configured, auto-detected "parallel" from available API keys',
+      );
+      return "parallel";
     }
     // Perplexity
     const perplexityConfig = resolvePerplexityConfig(search);
@@ -913,6 +948,84 @@ function resolveGeminiModel(gemini?: GeminiConfig): string {
   const fromConfig =
     gemini && "model" in gemini && typeof gemini.model === "string" ? gemini.model.trim() : "";
   return fromConfig || DEFAULT_GEMINI_MODEL;
+}
+
+function resolveParallelConfig(search?: WebSearchConfig): ParallelConfig {
+  if (!search || typeof search !== "object") {
+    return {};
+  }
+  const parallel = "parallel" in search ? search.parallel : undefined;
+  if (!parallel || typeof parallel !== "object") {
+    return {};
+  }
+  return parallel as ParallelConfig;
+}
+
+function resolveParallelApiKey(parallel?: ParallelConfig): string | undefined {
+  const fromConfig = normalizeApiKey(parallel?.apiKey);
+  if (fromConfig) {
+    return fromConfig;
+  }
+  const fromEnv = normalizeApiKey(process.env.PARALLEL_API_KEY);
+  return fromEnv || undefined;
+}
+
+function resolveParallelBaseUrl(parallel?: ParallelConfig): string {
+  const fromConfig =
+    parallel && "baseUrl" in parallel && typeof parallel.baseUrl === "string"
+      ? parallel.baseUrl.trim()
+      : "";
+  return fromConfig || DEFAULT_PARALLEL_BASE_URL;
+}
+
+async function runParallelSearch(params: {
+  query: string;
+  apiKey: string;
+  baseUrl: string;
+  timeoutSeconds: number;
+}): Promise<
+  Array<{ title: string; url: string; description: string; published?: string; siteName?: string }>
+> {
+  const baseUrl = params.baseUrl.trim().replace(/\/$/, "");
+  const endpoint = `${baseUrl}/v1beta/search`;
+
+  return withTrustedWebSearchEndpoint(
+    {
+      url: endpoint,
+      timeoutSeconds: params.timeoutSeconds,
+      init: {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": params.apiKey,
+        },
+        body: JSON.stringify({
+          objective: params.query,
+          mode: "fast",
+        }),
+      },
+    },
+    async (res) => {
+      if (!res.ok) {
+        await throwWebSearchApiError(res, "Parallel");
+      }
+
+      const data = (await res.json()) as ParallelSearchResponse;
+      const results = data.results ?? [];
+      return results.map((entry) => {
+        const title = entry.title ?? "";
+        const url = entry.url ?? "";
+        const description = (entry.excerpts ?? []).join("\n\n");
+        return {
+          title: title ? wrapWebContent(title, "web_search") : "",
+          url,
+          description: description ? wrapWebContent(description, "web_search") : "",
+          published: entry.publish_date || undefined,
+          siteName: resolveSiteName(url) || undefined,
+        };
+      });
+    },
+  );
 }
 
 async function withTrustedWebSearchEndpoint<T>(
@@ -1602,6 +1715,7 @@ async function runWebSearch(params: {
   geminiModel?: string;
   kimiBaseUrl?: string;
   kimiModel?: string;
+  parallelBaseUrl?: string;
   braveMode?: "web" | "llm-context";
 }): Promise<Record<string, unknown>> {
   const effectiveBraveMode = params.braveMode ?? "web";
@@ -1614,7 +1728,9 @@ async function runWebSearch(params: {
           ? (params.geminiModel ?? DEFAULT_GEMINI_MODEL)
           : params.provider === "kimi"
             ? `${params.kimiBaseUrl ?? DEFAULT_KIMI_BASE_URL}:${params.kimiModel ?? DEFAULT_KIMI_MODEL}`
-            : "";
+            : params.provider === "parallel"
+              ? (params.parallelBaseUrl ?? DEFAULT_PARALLEL_BASE_URL)
+              : "";
   const cacheKey = normalizeCacheKey(
     params.provider === "brave" && effectiveBraveMode === "llm-context"
       ? `${params.provider}:llm-context:${params.query}:${params.country || "default"}:${params.search_lang || params.language || "default"}:${params.freshness || "default"}`
@@ -1738,6 +1854,31 @@ async function runWebSearch(params: {
       },
       content: wrapWebContent(content),
       citations,
+    };
+    writeCache(SEARCH_CACHE, cacheKey, payload, params.cacheTtlMs);
+    return payload;
+  }
+
+  if (params.provider === "parallel") {
+    const results = await runParallelSearch({
+      query: params.query,
+      apiKey: params.apiKey,
+      baseUrl: params.parallelBaseUrl ?? DEFAULT_PARALLEL_BASE_URL,
+      timeoutSeconds: params.timeoutSeconds,
+    });
+
+    const payload = {
+      query: params.query,
+      provider: params.provider,
+      count: results.length,
+      tookMs: Date.now() - start,
+      externalContent: {
+        untrusted: true,
+        source: "web_search",
+        provider: params.provider,
+        wrapped: true,
+      },
+      results,
     };
     writeCache(SEARCH_CACHE, cacheKey, payload, params.cacheTtlMs);
     return payload;
@@ -1909,23 +2050,27 @@ export function createWebSearchTool(options?: {
   const grokConfig = resolveGrokConfig(search);
   const geminiConfig = resolveGeminiConfig(search);
   const kimiConfig = resolveKimiConfig(search);
+  const parallelConfig = resolveParallelConfig(search);
   const braveConfig = resolveBraveConfig(search);
   const braveMode = resolveBraveMode(braveConfig);
 
-  const description =
-    provider === "perplexity"
-      ? perplexitySchemaTransportHint === "chat_completions"
+  const PROVIDER_DESCRIPTIONS: Record<(typeof SEARCH_PROVIDERS)[number], string> = {
+    brave:
+      braveMode === "llm-context"
+        ? "Search the web using Brave Search LLM Context API. Returns pre-extracted page content (text chunks, tables, code blocks) optimized for LLM grounding."
+        : "Search the web using Brave Search API. Supports region-specific and localized search via country and language parameters. Returns titles, URLs, and snippets for fast research.",
+    perplexity:
+      perplexitySchemaTransportHint === "chat_completions"
         ? "Search the web using Perplexity Sonar via Perplexity/OpenRouter chat completions. Returns AI-synthesized answers with citations from web-grounded search."
-        : "Search the web using Perplexity. Runtime routing decides between native Search API and Sonar chat-completions compatibility. Structured filters are available on the native Search API path."
-      : provider === "grok"
-        ? "Search the web using xAI Grok. Returns AI-synthesized answers with citations from real-time web search."
-        : provider === "kimi"
-          ? "Search the web using Kimi by Moonshot. Returns AI-synthesized answers with citations from native $web_search."
-          : provider === "gemini"
-            ? "Search the web using Gemini with Google Search grounding. Returns AI-synthesized answers with citations from Google Search."
-            : braveMode === "llm-context"
-              ? "Search the web using Brave Search LLM Context API. Returns pre-extracted page content (text chunks, tables, code blocks) optimized for LLM grounding."
-              : "Search the web using Brave Search API. Supports region-specific and localized search via country and language parameters. Returns titles, URLs, and snippets for fast research.";
+        : "Search the web using Perplexity. Runtime routing decides between native Search API and Sonar chat-completions compatibility. Structured filters are available on the native Search API path.",
+    grok: "Search the web using xAI Grok. Returns AI-synthesized answers with citations from real-time web search.",
+    gemini:
+      "Search the web using Gemini with Google Search grounding. Returns AI-synthesized answers with citations from Google Search.",
+    kimi: "Search the web using Kimi by Moonshot. Returns AI-synthesized answers with citations from native $web_search.",
+    parallel:
+      "Search the web using Parallel. Returns relevant excerpts from real-time web search optimized for LLMs.",
+  };
+  const description = PROVIDER_DESCRIPTIONS[provider];
 
   return {
     label: "Web Search",
@@ -1940,16 +2085,16 @@ export function createWebSearchTool(options?: {
       // do not touch Perplexity-only credential surfaces during tool construction.
       const perplexityRuntime =
         provider === "perplexity" ? resolvePerplexityTransport(perplexityConfig) : undefined;
-      const apiKey =
-        provider === "perplexity"
-          ? perplexityRuntime?.apiKey
-          : provider === "grok"
-            ? resolveGrokApiKey(grokConfig)
-            : provider === "kimi"
-              ? resolveKimiApiKey(kimiConfig)
-              : provider === "gemini"
-                ? resolveGeminiApiKey(geminiConfig)
-                : resolveSearchApiKey(search);
+      const apiKeyByProvider: Record<(typeof SEARCH_PROVIDERS)[number], () => string | undefined> =
+        {
+          brave: () => resolveSearchApiKey(search),
+          perplexity: () => perplexityRuntime?.apiKey,
+          grok: () => resolveGrokApiKey(grokConfig),
+          gemini: () => resolveGeminiApiKey(geminiConfig),
+          kimi: () => resolveKimiApiKey(kimiConfig),
+          parallel: () => resolveParallelApiKey(parallelConfig),
+        };
+      const apiKey = apiKeyByProvider[provider]();
 
       if (!apiKey) {
         return jsonResult(missingSearchKeyPayload(provider));
@@ -2185,6 +2330,7 @@ export function createWebSearchTool(options?: {
         geminiModel: resolveGeminiModel(geminiConfig),
         kimiBaseUrl: resolveKimiBaseUrl(kimiConfig),
         kimiModel: resolveKimiModel(kimiConfig),
+        parallelBaseUrl: resolveParallelBaseUrl(parallelConfig),
         braveMode,
       });
       return jsonResult(result);
@@ -2216,6 +2362,8 @@ export const __testing = {
   resolveKimiModel,
   resolveKimiBaseUrl,
   extractKimiCitations,
+  resolveParallelApiKey,
+  resolveParallelBaseUrl,
   resolveRedirectUrl: resolveCitationRedirectUrl,
   resolveBraveMode,
   mapBraveLlmContextResults,
