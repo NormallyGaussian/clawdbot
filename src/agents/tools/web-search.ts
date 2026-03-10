@@ -291,6 +291,12 @@ function createWebSearchSchema(params: {
     });
   }
 
+  if (params.provider === "parallel") {
+    return Type.Object({
+      ...querySchema,
+    });
+  }
+
   // grok, gemini, kimi, etc.
   return Type.Object({
     ...querySchema,
